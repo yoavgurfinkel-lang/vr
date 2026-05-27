@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>PocketVR — What You See Through The Lens</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{
+  background:#000;
+  overflow:hidden;
+  width:100%;height:100%;
+  font-family:'Helvetica Neue',sans-serif;
+  touch-action:none;
+}
+#canvas{display:block;width:100%;height:100%;}
+
+/* HUD overlay */
+#hud{
+  position:fixed;bottom:0;left:0;right:0;
+  display:flex;flex-direction:column;align-items:center;
+  padding-bottom:env(safe-area-inset-bottom,12px);
+  pointer-events:none;
+  z-index:10;
+}
+#scene-label{
+  font-size:clamp(10px,2.5vw,13px);
+  color:rgba(255,255,220,0.55);
+  letter-spacing:0.18em;
+  text-transform:uppercase;
+  margin-bottom:8px;
+  text-shadow:0 1px 4px #000;
+}
+#dots{
+  display:flex;gap:8px;
+  margin-bottom:14px;
+  pointer-events:all;
+}
+.dot{
+  width:8px;height:8px;border-radius:50%;
+  background:rgba(255,255,255,0.2);
+  cursor:pointer;transition:all 0.2s;
+}
+.dot.on{background:#fff;transform:scale(1.3);}
+#tap-hint{
+  font-size:clamp(9px,2vw,11px);
+  color:rgba(255,255,255,0.25);
+  letter-spacing:0.1em;
+  margin-bottom:6px;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+  <div id="scene-label">Home Screen</div>
+  <div id="dots"></div>
+  <div id="tap-hint">TAP TO CHANGE SCENE · TILT PHONE TO LOOK AROUND</div>
+</div>
+
+<script>
+'use strict';
+
+// ── CANVAS SETUP ────────────────────────────────────────────────
+const canvas = document.getElementById('c') || document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+let W, H;
+
+function resize(){
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── HEAD TRACKING (gyroscope or mouse/touch drag) ────────────────
+let yaw  = 0;   // horizontal look (left/right)
+let pitch= 0;   // vertical look (up/down)
+let targetYaw  = 0;
+let targetPitch= 0;
+let dragging   = false;
+let lastX=0, lastY=0;
+
+// Gyroscope
+if(window.DeviceOrientationEvent){
+  window.addEventListener('deviceorientation', e=>{
+    if(e.gamma != null){
+      targetYaw   = Math.max(-1, Math.min(1, e.gamma / 35));
+      targetPitch = Math.max(-0.6, Math.min(0.6, (e.beta-45) / 40));
+    }
+  });
+}
+
+// Mouse/touch drag fallback
+canvas.addEventListener('mousedown',  e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
+canvas.addEventListener('mousemove',  e=>{
+  if(!dragging) return;
+  targetYaw   += (e.clientX-lastX) * 0.004;
+  targetPitch += (e.clientY-lastY) * 0.003;
+  targetYaw   = Math.max(-1.2, Math.min(1.2, targetYaw));
+  targetPitch = Math.max(-0.7, Math.min(0.7, targetPitch));
+  lastX=e.clientX; lastY=e.clientY;
+});
+canvas.addEventListener('mouseup',    ()=>dragging=false);
+canvas.addEventListener('mouseleave', ()=>dragging=false);
+canvas.addEventListener('touchstart', e=>{ dragging=true; lastX=e.touches[0].clientX; lastY=e.touches[0].clientY; e.preventDefault(); },{passive:false});
+canvas.addEventListener('touchmove',  e=>{
+  if(!dragging) return;
+  targetYaw   += (e.touches[0].clientX-lastX) * 0.004;
+  targetPitch += (e.touches[0].clientY-lastY) * 0.003;
+  targetYaw   = Math.max(-1.2, Math.min(1.2, targetYaw));
+  targetPitch = Math.max(-0.7, Math.min(0.7, targetPitch));
+  lastX=e.touches[0].clientX; lastY=e.touches[0].clientY;
+  e.preventDefault();
+},{passive:false});
+canvas.addEventListener('touchend', ()=>dragging=false);
+
+// ── SCENES ──────────────────────────────────────────────────────
+const SCENES = [
+  { label:'Home Screen',       draw: drawHome       },
+  { label:'Navigation — Maps', draw: drawMaps        },
+  { label:'Video Call',        draw: drawVideoCall   },
+  { label:'YouTube — Cinema',  draw: drawYouTube     },
+  { label:'Gallery — Photos',  draw: drawGallery     },
+  { label:'Messages',          draw: drawMessages    },
+];
+
+let scene = 0;
+let t = 0;
+let autoTimer = setInterval(()=> nextScene(), 6000);
+
+function nextScene(){
+  scene = (scene+1) % SCENES.length;
+  updateHUD();
+}
+
+canvas.addEventListener('click', ()=>{
+  clearInterval(autoTimer);
+  nextScene();
+  autoTimer = setInterval(()=>nextScene(), 6000);
+});
+
+function updateHUD(){
+  document.getElementById('scene-label').textContent = SCENES[scene].label;
+  const dc = document.getElementById('dots');
+  dc.innerHTML='';
+  SCENES.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot'+(i===scene?' on':'');
+    d.onclick=e=>{e.stopPropagation();scene=i;updateHUD();};
+    dc.appendChild(d);
+  });
+}
+updateHUD();
+
+// ── HELPER FUNCTIONS ─────────────────────────────────────────────
+
+// px,py = screen coords (0..1), returns canvas coords accounting for yaw/pitch
+function sx(px){ return (px + yaw*0.3) * W; }
+function sy(py){ return (py + pitch*0.25) * H; }
+// shorthand: screen centre x/y
+function scx(){ return W/2 + yaw*W*0.28; }
+function scy(){ return H/2 + pitch*H*0.22; }
+
+// Draw a rounded rect
+function rr(x,y,w,h,r,fill,stroke,lw=1.5){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+  if(fill)  { ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw; ctx.stroke(); }
+}
+
+function txt(text,x,y,size,col,align='center',bold=false){
+  ctx.fillStyle=col;
+  ctx.font=(bold?'bold ':'')+Math.max(size,8)+'px system-ui';
+  ctx.textAlign=align;
+  ctx.textBaseline='middle';
+  ctx.fillText(text,x,y);
+}
+
+function icon(emoji,x,y,size){
+  ctx.font=size+'px serif';
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.fillText(emoji,x,y);
+}
+
+// ── CINEMA ROOM BACKGROUND ───────────────────────────────────────
+function drawCinemaRoom(accentR,accentG,accentB){
+  const cx=scx(), cy=scy();
+
+  // Deep black
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,W,H);
+
+  // Back wall glow (screen light on wall)
+  const bg=ctx.createRadialGradient(cx,cy,0,cx,cy,W*0.75);
+  bg.addColorStop(0, `rgba(${accentR},${accentG},${accentB},0.28)`);
+  bg.addColorStop(0.4,`rgba(${Math.floor(accentR*0.4)},${Math.floor(accentG*0.4)},${Math.floor(accentB*0.4)},0.10)`);
+  bg.addColorStop(1,  `rgba(0,0,8,0.0)`);
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+
+  const vx=cx, vy=cy;
+
+  // ── CEILING ──
+  ctx.save();
+  // Ceiling gradient
+  const cg=ctx.createLinearGradient(vx,0,vx,vy);
+  cg.addColorStop(0,'rgba(0,0,0,0.95)');
+  cg.addColorStop(1,`rgba(${accentR},${accentG},${accentB},0.06)`);
+  ctx.fillStyle=cg; ctx.fillRect(0,0,W,vy);
+  // Ceiling beams receding to vanishing point
+  ctx.strokeStyle=`rgba(${accentR+30},${accentG+30},${accentB+60},0.07)`;
+  ctx.lineWidth=1;
+  for(let i=-10;i<=10;i++){
+    const ex=vx+i*(W*0.12);
+    ctx.beginPath(); ctx.moveTo(vx,vy*0.97); ctx.lineTo(ex,0); ctx.stroke();
+  }
+  // Ceiling crossbeams
+  for(let i=1;i<=5;i++){
+    const p=Math.pow(i/5,1.6);
+    const y2=vy*(1-p*0.95);
+    const sp=1-p*0.65;
+    ctx.globalAlpha=p*0.4;
+    ctx.beginPath(); ctx.moveTo(vx-W*sp,y2); ctx.lineTo(vx+W*sp,y2); ctx.stroke();
+  }
+  ctx.globalAlpha=1; ctx.restore();
+
+  // ── FLOOR ──
+  ctx.save();
+  const fg=ctx.createLinearGradient(vx,vy,vx,H);
+  fg.addColorStop(0,`rgba(${accentR},${accentG},${accentB},0.14)`);
+  fg.addColorStop(0.3,`rgba(${Math.floor(accentR*0.5)},${Math.floor(accentG*0.5)},${Math.floor(accentB*0.5)},0.05)`);
+  fg.addColorStop(1,'rgba(0,0,0,0.9)');
+  ctx.fillStyle=fg; ctx.fillRect(0,vy,W,H-vy);
+  // Floor grid lines
+  ctx.strokeStyle=`rgba(${accentR},${accentG},${accentB+20},0.07)`;
+  ctx.lineWidth=1;
+  for(let i=-12;i<=12;i++){
+    const ex=vx+i*(W*0.1);
+    ctx.beginPath(); ctx.moveTo(vx,vy); ctx.lineTo(ex,H); ctx.stroke();
+  }
+  for(let i=1;i<=10;i++){
+    const p=Math.pow(i/10,2.2);
+    const y2=vy+p*(H-vy);
+    const sp=Math.pow(p,0.4);
+    ctx.globalAlpha=p*0.5;
+    ctx.beginPath(); ctx.moveTo(vx-W*sp*0.95,y2); ctx.lineTo(vx+W*sp*0.95,y2); ctx.stroke();
+  }
+  ctx.globalAlpha=1; ctx.restore();
+
+  // ── FLOOR REFLECTION of screen ──
+  ctx.save();
+  const rg=ctx.createRadialGradient(vx,vy+H*0.18,0,vx,vy+H*0.18,W*0.45);
+  rg.addColorStop(0,`rgba(${accentR},${accentG},${accentB},0.22)`);
+  rg.addColorStop(0.5,`rgba(${Math.floor(accentR*0.5)},${Math.floor(accentG*0.5)},${Math.floor(accentB*0.5)},0.06)`);
+  rg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=rg; ctx.fillRect(0,vy,W,H-vy);
+  ctx.restore();
+
+  // ── SIDE WALLS ──
+  ctx.save();
+  const lw2=ctx.createLinearGradient(0,vy,vx*0.5,vy);
+  lw2.addColorStop(0,`rgba(${accentR+5},${accentG+5},${accentB+15},0.14)`);
+  lw2.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=lw2;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(vx*0.82,vy*0.72); ctx.lineTo(vx*0.82,vy*1.28); ctx.lineTo(0,H); ctx.fill();
+  const rw=ctx.createLinearGradient(W,vy,vx*1.5,vy);
+  rw.addColorStop(0,`rgba(${accentR+5},${accentG+5},${accentB+15},0.14)`);
+  rw.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=rw;
+  ctx.beginPath(); ctx.moveTo(W,0); ctx.lineTo(vx*1.18,vy*0.72); ctx.lineTo(vx*1.18,vy*1.28); ctx.lineTo(W,H); ctx.fill();
+  ctx.restore();
+
+  // ── DUST PARTICLES ──
+  ctx.save();
+  for(let i=0;i<20;i++){
+    const seed=i*137.5;
+    const px=vx+Math.sin(seed*0.7+t*0.003)*W*0.5;
+    const py=vy+Math.cos(seed*0.4+t*0.002)*H*0.5;
+    const depth=0.3+((seed*0.13)%0.7);
+    ctx.globalAlpha=depth*0.3;
+    ctx.fillStyle=`rgb(${accentR+100},${accentG+100},${accentB+150})`;
+    ctx.beginPath(); ctx.arc(px,py,depth*2,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1; ctx.restore();
+
+  // ── CINEMA SEAT ARMS (foreground — you are seated) ──
+  ctx.save();
+  ctx.globalAlpha=0.5;
+  const la=ctx.createLinearGradient(0,H,W*0.28,H*0.7);
+  la.addColorStop(0,`rgb(${14+accentR/5},${10+accentG/5},${6+accentB/8})`);
+  la.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=la;
+  ctx.beginPath(); ctx.moveTo(0,H); ctx.lineTo(W*0.25,H*0.72); ctx.lineTo(W*0.18,H*0.76); ctx.lineTo(W*0.07,H*0.84); ctx.lineTo(0,H*0.84); ctx.fill();
+  const ra=ctx.createLinearGradient(W,H,W*0.72,H*0.7);
+  ra.addColorStop(0,`rgb(${14+accentR/5},${10+accentG/5},${6+accentB/8})`);
+  ra.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=ra;
+  ctx.beginPath(); ctx.moveTo(W,H); ctx.lineTo(W*0.75,H*0.72); ctx.lineTo(W*0.82,H*0.76); ctx.lineTo(W*0.93,H*0.84); ctx.lineTo(W,H*0.84); ctx.fill();
+  ctx.restore();
+}
+
+// ── THE SCREEN (floating in the room) ────────────────────────────
+function drawScreen(drawContent, accentR,accentG,accentB, title=''){
+  const cx=scx(), cy=scy();
+  const sw = W*0.72;
+  const sh = sw*0.58;
+  const sx2= cx - sw/2;
+  const sy2= cy - sh/2;
+
+  // Screen outer glow
+  const og=ctx.createRadialGradient(cx,cy,sw*0.1,cx,cy,sw*1.1);
+  og.addColorStop(0,`rgba(${accentR},${accentG},${accentB},0.22)`);
+  og.addColorStop(0.5,`rgba(${Math.floor(accentR*0.5)},${Math.floor(accentG*0.5)},${Math.floor(accentB*0.5)},0.08)`);
+  og.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=og; ctx.fillRect(0,0,W,H);
+
+  // IMAX-style thick black bezel
+  rr(sx2-16,sy2-10,sw+32,sh+20,10,'#000');
+  rr(sx2-8, sy2-5, sw+16,sh+10,8,'#0a0a0a');
+
+  // Screen surface
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(sx2,sy2,sw,sh,6);
+  ctx.clip();
+  drawContent(sx2,sy2,sw,sh,cx,cy);
+  ctx.restore();
+
+  // Scanlines
+  ctx.save();
+  ctx.globalAlpha=0.025;
+  ctx.fillStyle='#000';
+  for(let y=sy2;y<sy2+sh;y+=2.5){
+    ctx.fillRect(sx2,y,sw,1.2);
+  }
+  ctx.restore();
+
+  // Screen sheen
+  const sheen=ctx.createLinearGradient(sx2,sy2,sx2,sy2+sh*0.45);
+  sheen.addColorStop(0,'rgba(255,255,255,0.09)');
+  sheen.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(sx2,sy2,sw,sh,6); ctx.clip();
+  ctx.fillStyle=sheen; ctx.fill();
+  ctx.restore();
+
+  // Screen edge glow
+  ctx.save();
+  ctx.shadowColor=`rgb(${accentR},${accentG},${accentB})`;
+  ctx.shadowBlur=25;
+  ctx.strokeStyle=`rgba(${accentR},${accentG},${accentB},0.7)`;
+  ctx.lineWidth=2;
+  ctx.beginPath(); ctx.roundRect(sx2,sy2,sw,sh,6); ctx.stroke();
+  ctx.restore();
+
+  // Title above screen
+  if(title){
+    txt(title, cx, sy2-26, Math.max(12,W*0.015), 'rgba(255,255,220,0.7)', 'center', true);
+  }
+}
+
+// ── LENS VIGNETTE (the tube you're looking through) ──────────────
+function drawLens(){
+  const cx=W/2, cy=H/2;
+  // The lens radius is fixed to the tube — does NOT move with head
+  const rv = Math.min(W,H)*0.48;
+
+  // Soft vignette
+  const vg=ctx.createRadialGradient(cx,cy,rv*0.42,cx,cy,rv);
+  vg.addColorStop(0,'rgba(0,0,0,0)');
+  vg.addColorStop(0.65,'rgba(0,0,0,0.04)');
+  vg.addColorStop(0.84,'rgba(0,0,0,0.55)');
+  vg.addColorStop(0.93,'rgba(0,0,0,0.88)');
+  vg.addColorStop(1,   'rgba(0,0,0,1)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+
+  // Hard black outside
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0,0,W,H);
+  ctx.arc(cx,cy,rv,0,Math.PI*2,true);
+  ctx.fillStyle='#000'; ctx.fill();
+  ctx.restore();
+
+  // Subtle lens reflections (makes it feel like glass)
+  ctx.save();
+  ctx.globalAlpha=0.035;
+  ctx.strokeStyle='rgba(255,255,255,0.8)';
+  ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(cx-rv*0.15,cy-rv*0.18,rv*0.22,0.8,2.1); ctx.stroke();
+  ctx.globalAlpha=0.02;
+  ctx.beginPath(); ctx.arc(cx+rv*0.2,cy+rv*0.1,rv*0.12,3.5,5.0); ctx.stroke();
+  ctx.restore();
+
+  // Fresnel ring hints (very subtle — the lens texture)
+  ctx.save();
+  for(let r=rv*0.7;r<rv*0.97;r+=rv*0.06){
+    ctx.globalAlpha=0.015;
+    ctx.strokeStyle='rgba(200,220,255,1)';
+    ctx.lineWidth=0.8;
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ══════════════════════════════════════════
+// SCENE 1 — HOME SCREEN
+// ══════════════════════════════════════════
+function drawHome(){
+  drawCinemaRoom(20,40,80);
+  drawScreen((sx2,sy2,sw,sh,cx,cy)=>{
+    // Wallpaper - deep space
+    const bg=ctx.createLinearGradient(sx2,sy2,sx2+sw,sy2+sh);
+    bg.addColorStop(0,'#050510'); bg.addColorStop(1,'#0a0520');
+    ctx.fillStyle=bg; ctx.fillRect(sx2,sy2,sw,sh);
+    // Stars
+    for(let i=0;i<60;i++){
+      const star_x=sx2+((i*137+53)%sw);
+      const star_y=sy2+((i*97+31)%sh);
+      const br=0.3+((i*73)%70)/100;
+      ctx.globalAlpha=br;
+      ctx.fillStyle='#fff';
+      ctx.beginPath(); ctx.arc(star_x,star_y,0.8+((i*41)%2)*0.6,0,Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Status bar
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    ctx.fillRect(sx2,sy2,sw,sh*0.07);
+    txt('9:41',sx2+sw*0.08,sy2+sh*0.036,Math.max(7,sw*0.03),'white','left',true);
+    txt('●●●●',sx2+sw*0.88,sy2+sh*0.036,Math.max(6,sw*0.022),'rgba(255,255,255,0.7)');
+
+    // Clock
+    txt('9:41',cx,sy2+sh*0.22,Math.max(20,sw*0.1),'white','center',true);
+    txt('Wednesday, 27 May',cx,sy2+sh*0.32,Math.max(8,sw*0.028),'rgba(255,255,255,0.6)','center');
+
+    // App icons grid
+    const apps=[
+      ['📷','Camera'],['🗺','Maps'],['💬','Messages'],['🎵','Music'],
+      ['📸','Photos'],['📺','YouTube'],['🌐','Browser'],['⚙','Settings'],
+      ['📧','Mail'],['🔔','Clock'],['💳','Wallet'],['🎮','Games'],
+    ];
+    const cols=4, rows=3;
+    const iw=sw*0.15, ih=sh*0.2;
+    const startX=sx2+sw*0.12, startY=sy2+sh*0.42;
+    apps.forEach(([e,lbl],i)=>{
+      const col2=i%cols, row=Math.floor(i/cols);
+      const ix=startX+col2*(sw*0.22), iy=startY+row*(sh*0.24);
+      // Icon bg
+      rr(ix-iw/2,iy-ih*0.35,iw,ih*0.7,8,`rgba(255,255,255,0.1)`);
+      icon(e,ix,iy,Math.max(12,sw*0.055));
+      txt(lbl,ix,iy+ih*0.44,Math.max(6,sw*0.022),'rgba(255,255,255,0.7)','center');
+    });
+
+    // Home bar
+    rr(cx-sw*0.15,sy2+sh*0.93,sw*0.3,sh*0.014,4,'rgba(255,255,255,0.4)');
+  }, 20,40,80, 'HOME SCREEN');
+}
+
+// ══════════════════════════════════════════
+// SCENE 2 — MAPS
+// ══════════════════════════════════════════
+function drawMaps(){
+  drawCinemaRoom(10,50,30);
+  drawScreen((sx2,sy2,sw,sh,cx,cy)=>{
+    // Map background
+    ctx.fillStyle='#1a2a1a'; ctx.fillRect(sx2,sy2,sw,sh);
+
+    // Grid roads
+    ctx.strokeStyle='#2a3a2a'; ctx.lineWidth=1;
+    for(let x=sx2;x<sx2+sw;x+=sw*0.08){
+      ctx.beginPath(); ctx.moveTo(x,sy2); ctx.lineTo(x,sy2+sh); ctx.stroke();
+    }
+    for(let y=sy2;y<sy2+sh;y+=sh*0.08){
+      ctx.beginPath(); ctx.moveTo(sx2,y); ctx.lineTo(sx2+sw,y); ctx.stroke();
+    }
+    // Parks (green blocks)
+    rr(sx2+sw*0.05,sy2+sh*0.15,sw*0.2,sh*0.22,4,'#1e3a1e');
+    rr(sx2+sw*0.6,sy2+sh*0.5,sw*0.25,sh*0.28,4,'#1e3a1e');
+    // Water
+    rr(sx2+sw*0.3,sy2+sh*0.6,sw*0.35,sh*0.2,4,'#0a1a2a');
+
+    // Main roads (thicker, lighter)
+    ctx.strokeStyle='#3a5a3a'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(sx2,sy2+sh*0.5); ctx.lineTo(sx2+sw,sy2+sh*0.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx2+sw*0.5,sy2); ctx.lineTo(sx2+sw*0.5,sy2+sh); ctx.stroke();
+    ctx.strokeStyle='#445a44'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(sx2,sy2+sh*0.3); ctx.lineTo(sx2+sw,sy2+sh*0.3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx2+sw*0.3,sy2); ctx.lineTo(sx2+sw*0.3,sy2+sh); ctx.stroke();
+
+    // Route (highlighted)
+    ctx.strokeStyle='#0066ff'; ctx.lineWidth=4;
+    ctx.setLineDash([8,4]);
+    ctx.beginPath();
+    ctx.moveTo(sx2+sw*0.15,sy2+sh*0.8);
+    ctx.lineTo(sx2+sw*0.15,sy2+sh*0.5);
+    ctx.lineTo(sx2+sw*0.5,sy2+sh*0.5);
+    ctx.lineTo(sx2+sw*0.5,sy2+sh*0.2);
+    ctx.stroke(); ctx.setLineDash([]);
+
+    // Location pins
+    ctx.fillStyle='#ff3333'; ctx.font='bold '+Math.max(14,sw*0.055)+'px serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('📍',sx2+sw*0.5,sy2+sh*0.18);
+    ctx.fillStyle='#4488ff';
+    ctx.fillText('📍',sx2+sw*0.15,sy2+sh*0.82);
+
+    // Card at bottom
+    rr(sx2+sw*0.05,sy2+sh*0.76,sw*0.9,sh*0.18,8,'rgba(0,0,0,0.85)');
+    txt('London Bridge',cx,sy2+sh*0.83,Math.max(9,sw*0.038),'white','center',true);
+    txt('12 min · 3.2 km  →  Fastest route',cx,sy2+sh*0.9,Math.max(7,sw*0.026),'#4488ff','center');
+
+    // Status bar
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(sx2,sy2,sw,sh*0.07);
+    txt('Navigation',cx,sy2+sh*0.036,Math.max(7,sw*0.026),'white','center',true);
+  }, 10,50,30, 'MAPS — NAVIGATION');
+}
+
+// ══════════════════════════════════════════
+// SCENE 3 — VIDEO CALL
+// ══════════════════════════════════════════
+function drawVideoCall(){
+  drawCinemaRoom(10,30,60);
+  drawScreen((sx2,sy2,sw,sh,cx,cy)=>{
+    // Main call bg (their face)
+    const bg=ctx.createRadialGradient(cx,cy-sh*0.1,0,cx,cy-sh*0.1,sw*0.4);
+    bg.addColorStop(0,'#1a1520'); bg.addColorStop(1,'#0a0a12');
+    ctx.fillStyle=bg; ctx.fillRect(sx2,sy2,sw,sh);
+
+    // Animated video "frame" lines
+    const wave=Math.sin(t*0.04)*3;
+    ctx.strokeStyle='rgba(100,100,150,0.08)'; ctx.lineWidth=1;
+    for(let y=sy2;y<sy2+sh;y+=4){
+      ctx.beginPath(); ctx.moveTo(sx2,y+Math.sin(y*0.1+t*0.02)*wave); ctx.lineTo(sx2+sw,y+Math.sin(y*0.1+t*0.02)*wave); ctx.stroke();
+    }
+
+    // Person silhouette
+    // Head
+    ctx.fillStyle='#2a2035';
+    ctx.beginPath(); ctx.arc(cx,sy2+sh*0.35,sh*0.14,0,Math.PI*2); ctx.fill();
+    // Shoulders
+    ctx.beginPath();
+    ctx.ellipse(cx,sy2+sh*0.6,sh*0.28,sh*0.14,0,0,Math.PI*2); ctx.fill();
+    // Subtle face features
+    ctx.fillStyle='rgba(255,220,180,0.15)';
+    ctx.beginPath(); ctx.arc(cx,sy2+sh*0.34,sh*0.12,0,Math.PI*2); ctx.fill();
+
+    // Name + status
+    rr(sx2+sw*0.04,sy2+sh*0.76,sw*0.5,sh*0.1,4,'rgba(0,0,0,0.6)');
+    txt('Sarah',sx2+sw*0.04+sw*0.25,sy2+sh*0.82,Math.max(9,sw*0.038),'white','center',true);
+    // Call duration
+    const sec=Math.floor(t/60)%60;
+    const min=Math.floor(t/3600)%60;
+    txt(`${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`,
+      cx,sy2+sh*0.12,Math.max(8,sw*0.03),'rgba(255,255,255,0.5)','center');
+
+    // Your camera (small bottom right)
+    rr(sx2+sw*0.72,sy2+sh*0.73,sw*0.25,sh*0.2,6,'#111');
+    const bg2=ctx.createLinearGradient(sx2+sw*0.72,sy2+sh*0.73,sx2+sw*0.97,sy2+sh*0.93);
+    bg2.addColorStop(0,'#1a1a2a'); bg2.addColorStop(1,'#0a0a18');
+    ctx.fillStyle=bg2; rr(sx2+sw*0.72,sy2+sh*0.73,sw*0.25,sh*0.2,6,null);
+    ctx.fill();
+    txt('You',sx2+sw*0.845,sy2+sh*0.91,Math.max(6,sw*0.022),'rgba(255,255,255,0.5)','center');
+
+    // Control bar
+    rr(sx2,sy2+sh*0.9,sw,sh*0.1,0,'rgba(0,0,0,0.8)');
+    ['🎤','📷','💬','⋮'].forEach((ic,i)=>{
+      icon(ic,sx2+sw*(0.2+i*0.2),sy2+sh*0.948,Math.max(10,sw*0.04));
+    });
+    // End call button
+    ctx.fillStyle='#dd2222';
+    ctx.beginPath(); ctx.arc(cx,sy2+sh*0.948,sh*0.038,0,Math.PI*2); ctx.fill();
+    txt('📞',cx,sy2+sh*0.948,Math.max(10,sw*0.04),'white','center');
+  }, 10,30,60, 'VIDEO CALL');
+}
+
+// ══════════════════════════════════════════
+// SCENE 4 — YOUTUBE
+// ══════════════════════════════════════════
+function drawYouTube(){
+  drawCinemaRoom(60,10,10);
+  drawScreen((sx2,sy2,sw,sh,cx,cy)=>{
+    // Video playing — space scene
+    ctx.fillStyle='#020208'; ctx.fillRect(sx2,sy2,sw,sh);
+
+    // Space background
+    for(let i=0;i<80;i++){
+      const sx3=sx2+((i*157+77)%sw);
+      const sy3=sy2+((i*113+41)%(sh*0.8));
+      ctx.globalAlpha=0.4+((i*73)%60)/100;
+      ctx.fillStyle='white';
+      ctx.beginPath(); ctx.arc(sx3,sy3,0.6+((i*47)%2)*0.5,0,Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Animated rocket
+    const rocketY=sy2+sh*0.25+Math.sin(t*0.03)*sh*0.04;
+    icon('🚀',cx+Math.cos(t*0.02)*sw*0.05,rocketY,Math.max(16,sw*0.06));
+
+    // Title overlay at top
+    rr(sx2,sy2,sw,sh*0.12,'rgba(0,0,0,0.7)');
+    txt('Space Documentary 2026',cx,sy2+sh*0.06,Math.max(8,sw*0.032),'white','center',true);
+
+    // Progress bar
+    const prog=(t%600)/600;
+    rr(sx2,sy2+sh*0.86,sw,sh*0.014,'#333');
+    rr(sx2,sy2+sh*0.86,sw*prog,sh*0.014,'#ff2222');
+    // Progress dot
+    ctx.fillStyle='#ff2222';
+    ctx.beginPath(); ctx.arc(sx2+sw*prog,sy2+sh*0.867,sh*0.012,0,Math.PI*2); ctx.fill();
+
+    // Controls bar
+    rr(sx2,sy2+sh*0.88,sw,sh*0.12,'rgba(0,0,0,0.85)');
+    const elapsed=Math.floor(prog*44*60);
+    const em=Math.floor(elapsed/60), es=elapsed%60;
+    txt(`${em}:${String(es).padStart(2,'0')} / 44:18`,
+      sx2+sw*0.08,sy2+sh*0.935,Math.max(7,sw*0.026),'rgba(255,255,255,0.7)','left');
+    // Control icons
+    ['⏮','⏪','▶','⏩','⏭'].forEach((ic,i)=>{
+      icon(ic,cx-sw*0.12+i*sw*0.06,sy2+sh*0.935,Math.max(8,sw*0.028));
+    });
+    // Fullscreen icon
+    icon('⛶',sx2+sw*0.92,sy2+sh*0.935,Math.max(8,sw*0.028));
+
+    // View count
+    txt('4.1M views',sx2+sw*0.08,sy2+sh*0.97,Math.max(6,sw*0.022),'rgba(255,255,255,0.4)','left');
+  }, 60,10,10, 'YOUTUBE — SPACE DOCUMENTARY 2026');
+}
+
+// ══════════════════════════════════════════
+// SCENE 5 — GALLERY / PHOTO
+// ══════════════════════════════════════════
+function drawGallery(){
+  drawCinemaRoom(20,30,55);
+  drawScreen((sx2,sy2,sw,sh,cx,cy)=>{
+    // Photo — sunset over mountains
+    const sky=ctx.createLinearGradient(sx2,sy2,sx2,sy2+sh*0.65);
+    sky.addColorStop(0,'#0a0520');
+    sky.addColorStop(0.3,'#1a0a40');
+    sky.addColorStop(0.6,'#4a1a20');
+    sky.addColorStop(0.75,'#8a3a15');
+    sky.addColorStop(0.85,'#cc6a20');
+    sky.addColorStop(1,'#ee9a30');
+    ctx.fillStyle=sky; ctx.fillRect(sx2,sy2,sw,sh);
+
+    // Stars in sky
+    for(let i=0;i<30;i++){
+      const sx3=sx2+((i*173+33)%sw);
+      const sy3=sy2+((i*97+11)%(sh*0.35));
+      ctx.globalAlpha=0.6+((i*53)%40)/100;
+      ctx.fillStyle='white';
+      ctx.beginPath(); ctx.arc(sx3,sy3,0.6,0,Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Sun glow
+    const sunG=ctx.createRadialGradient(cx,sy2+sh*0.65,0,cx,sy2+sh*0.65,sw*0.25);
+    sunG.addColorStop(0,'rgba(255,200,50,0.8)');
+    sunG.addColorStop(0.3,'rgba(255,140,20,0.3)');
+    sunG.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=sunG; ctx.fillRect(sx2,sy2,sw,sh);
+
+    // Mountain silhouettes
+    ctx.fillStyle='#080612';
+    ctx.beginPath();
+    ctx.moveTo(sx2,sy2+sh);
+    ctx.lineTo(sx2,sy2+sh*0.7);
+    ctx.lineTo(sx2+sw*0.15,sy2+sh*0.5);
+    ctx.lineTo(sx2+sw*0.3,sy2+sh*0.65);
+    ctx.lineTo(sx2+sw*0.45,sy2+sh*0.42);
+    ctx.lineTo(sx2+sw*0.55,sy2+sh*0.56);
+    ctx.lineTo(sx2+sw*0.7,sy2+sh*0.48);
+    ctx.lineTo(sx2+sw*0.82,sy2+sh*0.6);
+    ctx.lineTo(sx2+sw,sy2+sh*0.55);
+    ctx.lineTo(sx2+sw,sy2+sh);
+    ctx.fill();
+
+    // Water reflection
+    const water=ctx.createLinearGradient(sx2,sy2+sh*0.78,sx2,sy2+sh);
+    water.addColorStop(0,'rgba(10,10,30,0.95)');
+    water.addColorStop(1,'rgba(5,5,15,1)');
+    ctx.fillStyle=water; ctx.fillRect(sx2,sy2+sh*0.78,sw,sh*0.22);
+    // Ripple reflection
+    ctx.strokeStyle='rgba(200,120,30,0.15)'; ctx.lineWidth=1;
+    for(let i=0;i<8;i++){
+      const ry=sy2+sh*(0.82+i*0.022);
+      ctx.beginPath(); ctx.moveTo(sx2+sw*0.2,ry); ctx.lineTo(sx2+sw*0.8,ry); ctx.stroke();
+    }
+
+    // Photo UI overlay
+    rr(sx2,sy2,sw,sh*0.09,'rgba(0,0,0,0.5)');
+    txt('Snowdonia · May 2026',cx,sy2+sh*0.045,Math.max(8,sw*0.03),'white','center',true);
+    // Bottom controls
+    rr(sx2,sy2+sh*0.91,sw,sh*0.09,'rgba(0,0,0,0.5)');
+    ['←','🤍','📤','🗑'].forEach((ic,i)=>{
+      txt(ic,sx2+sw*(0.12+i*0.28),sy2+sh*0.955,Math.max(9,sw*0.032),'rgba(255,255,255,0.8)','center',true);
+    });
+  }, 20,30,55, 'PHOTOS — SNOWDONIA SUNSET');
+}
+
+// ══════════════════════════════════════════
+// SCENE 6 — MESSAGES
+// ══════════════════════════════════════════
+function drawMessages(){
+  drawCinemaRoom(30,20,55);
+  drawScreen((sx2,sy2,sw,sh,cx,cy)=>{
+    ctx.fillStyle='#0a0a14'; ctx.fillRect(sx2,sy2,sw,sh);
+
+    // Header
+    rr(sx2,sy2,sw,sh*0.1,'rgba(20,20,35,0.95)');
+    icon('👩',sx2+sw*0.12,sy2+sh*0.05,Math.max(10,sw*0.04));
+    txt('Sarah',sx2+sw*0.22,sy2+sh*0.038,Math.max(9,sw*0.034),'white','left',true);
+    txt('Online',sx2+sw*0.22,sy2+sh*0.07,Math.max(6,sw*0.022),'#44cc44','left');
+    txt('✓✓',sx2+sw*0.88,sy2+sh*0.05,Math.max(7,sw*0.026),'#4488ff','center');
+
+    // Messages
+    const msgs=[
+      [false,'Hey! Can you see the VR demo?',sh*0.16],
+      [true, 'Yes!! It actually works 🤯',  sh*0.26],
+      [false,'The cinema room effect is wild',sh*0.38],
+      [true, 'Right?? Like a 160 inch screen', sh*0.48],
+      [false,'How does the lens thing work?',sh*0.58],
+      [true, 'Small Fresnel lens on the phone',sh*0.67],
+      [true, 'Barrel extends toward your eye 👁',sh*0.75],
+      [false,'That is genuinely brilliant 🔥',sh*0.84],
+    ];
+    msgs.forEach(([sent,text,yOff])=>{
+      const msgW=sw*0.65;
+      const msx=sent?sx2+sw*0.31:sx2+sw*0.04;
+      const msy=sy2+yOff;
+      rr(msx,msy,msgW,sh*0.074,8,
+        sent?'rgba(30,80,180,0.9)':'rgba(35,35,55,0.9)');
+      txt(text,msx+msgW*0.5,msy+sh*0.037,
+        Math.max(7,sw*0.026),
+        'rgba(255,255,255,0.92)','center');
+    });
+
+    // Input bar
+    rr(sx2,sy2+sh*0.92,sw,sh*0.08,'rgba(15,15,25,0.95)');
+    rr(sx2+sw*0.04,sy2+sh*0.934,sw*0.75,sh*0.05,14,'rgba(40,40,60,0.9)');
+    txt('Message Sarah...',sx2+sw*0.11,sy2+sh*0.958,Math.max(7,sw*0.025),'rgba(255,255,255,0.3)','left');
+    ctx.fillStyle='#4488ff';
+    ctx.beginPath(); ctx.arc(sx2+sw*0.93,sy2+sh*0.96,sh*0.028,0,Math.PI*2); ctx.fill();
+    txt('↑',sx2+sw*0.93,sy2+sh*0.96,Math.max(7,sw*0.028),'white','center',true);
+  }, 30,20,55, 'MESSAGES — SARAH');
+}
+
+// ── MAIN LOOP ────────────────────────────────────────────────────
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  // Smooth look direction
+  yaw   += (targetYaw   - yaw)   * 0.07;
+  pitch += (targetPitch - pitch) * 0.07;
+
+  // Draw scene
+  SCENES[scene].draw();
+
+  // Always draw lens vignette last
+  drawLens();
+
+  t++;
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
