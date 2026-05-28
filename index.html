@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>PD Measure</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0c0c12;color:#e2e2ee;font-family:'Courier New',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:18px 14px 40px;}
+h1{font-size:24px;font-weight:900;background:linear-gradient(90deg,#00e5ff,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.06em;}
+.card{background:#13131e;border:1px solid #1e1e2e;border-radius:12px;padding:18px;margin-bottom:13px;width:100%;max-width:460px;}
+.clabel{font-size:10px;color:#444;letter-spacing:.22em;margin-bottom:13px;}
+.field{margin-bottom:12px;}.field:last-child{margin-bottom:0;}
+.field label{display:block;font-size:11px;color:#777;margin-bottom:5px;}
+.field input{width:100%;background:#0a0a14;border:1px solid #2a2a3e;border-radius:8px;color:#e2e2ee;padding:11px 13px;font-size:17px;font-family:inherit;outline:none;}
+.hint{font-size:10px;color:#383848;margin-top:3px;line-height:1.5;}
+.btn{width:100%;max-width:460px;padding:14px 0;border-radius:10px;font-size:13px;letter-spacing:.18em;cursor:pointer;font-family:inherit;border:none;display:block;}
+.btn+.btn{margin-top:9px;}
+.btn-primary{background:linear-gradient(135deg,#00e5ff15,#a78bfa15);border:1px solid #00e5ff66!important;color:#00e5ff;}
+.btn-primary:disabled{background:#111;border:1px solid #1e1e1e!important;color:#333;cursor:default;}
+.btn-ghost{background:transparent;border:1px solid #1e1e2e!important;color:#444;}
+.hidden{display:none!important;}
+.vwrap{position:relative;border-radius:12px;overflow:hidden;margin-bottom:12px;width:100%;max-width:460px;background:#000;}
+#livevid{width:100%;display:block;transform:scaleX(-1);}
+#overlaycv{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;transform:scaleX(-1);}
+.badge{position:absolute;top:9px;left:9px;border-radius:6px;padding:3px 9px;font-size:11px;font-family:'Courier New',monospace;pointer-events:none;z-index:10;}
+.ibar{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.7);padding:9px 12px;font-size:11px;text-align:center;z-index:10;}
+/* Progress arc */
+.ring-wrap{position:relative;width:110px;height:110px;margin:0 auto 13px;}
+.ring-inner{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;}
+.ring-num{font-size:26px;font-weight:900;color:#00e5ff;line-height:1;}
+.rsub{font-size:10px;color:#444;}
+/* Angle histogram bar */
+.hist-wrap{width:100%;max-width:460px;margin-bottom:11px;}
+.hist-label{font-size:10px;color:#444;letter-spacing:.15em;margin-bottom:5px;display:flex;justify-content:space-between;}
+.hist-bar{height:28px;background:#0a0a14;border:1px solid #1e1e2e;border-radius:6px;position:relative;overflow:hidden;display:flex;align-items:stretch;}
+.hist-seg{flex:1;border-right:1px solid #0c0c12;}
+/* quality tags */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:11px;width:100%;max-width:460px;}
+.metric{background:#13131e;border:1px solid #1e1e2e;border-radius:8px;padding:9px 13px;}
+.ml{font-size:10px;color:#444;margin-bottom:1px;}
+.mv{font-size:21px;font-weight:700;line-height:1.1;}
+.mv span{font-size:11px;color:#555;margin-left:3px;}
+.srow{display:flex;gap:7px;margin-bottom:11px;width:100%;max-width:460px;}
+.stag{flex:1;border-radius:6px;padding:6px 4px;font-size:10px;text-align:center;font-family:'Courier New',monospace;}
+.good{background:#002212;border:1px solid #00e055;color:#00e055;}
+.bad{background:#1a0000;border:1px solid #e03333;color:#e03333;}
+.warn{background:#181000;border:1px solid #cc8800;color:#cc8800;}
+.dbg{background:#0a0a00;border:1px solid #2a2a00;border-radius:8px;padding:8px 12px;margin-bottom:11px;font-size:10px;color:#666;width:100%;max-width:460px;}
+.result-img{width:100%;border-radius:10px;border:1px solid #1e1e2e;display:block;}
+#riw{width:100%;max-width:460px;margin-bottom:13px;}
+.dl-btn{display:block;margin-top:9px;padding:11px 0;text-align:center;background:#0a0a14;border:1px solid #222;border-radius:8px;color:#666;font-size:12px;text-decoration:none;font-family:inherit;}
+.optbox{background:#080f08;border:1px solid #152015;border-radius:8px;padding:13px;margin-bottom:13px;font-size:12px;color:#2a5a2a;line-height:1.8;width:100%;max-width:460px;}
+.ot{color:#3a7a3a;margin-bottom:5px;font-size:11px;letter-spacing:.15em;}
+.sr{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.sr:last-child{margin-bottom:0;}
+.sr label{font-size:11px;color:#666;width:78px;flex-shrink:0;}
+.sr input[type=range]{flex:1;accent-color:#00e5ff;}
+.sv{font-size:13px;color:#00e5ff;width:54px;text-align:right;flex-shrink:0;}
+#fc{width:100%;max-width:460px;border-radius:10px;border:1px solid #1e1e2e;display:block;margin-bottom:13px;}
+.notice{margin-top:16px;font-size:10px;color:#222;text-align:center;line-height:1.7;}
+#eb{background:#1a0000;border:1px solid #ff4444;border-radius:8px;padding:11px;margin-bottom:12px;font-size:12px;color:#ff8888;width:100%;max-width:460px;}
+</style>
+</head>
+<body>
+<div style="text-align:center;margin-bottom:20px;">
+  <div style="font-size:10px;letter-spacing:.28em;color:#444;margin-bottom:5px;">OPTICAL MEASUREMENT SYSTEM</div>
+  <h1>PD + SEG HEIGHT</h1>
+</div>
+
+<!-- SETUP -->
+<div id="s-setup">
+  <div class="card">
+    <div class="clabel">FRAME SPECIFICATIONS</div>
+    <div class="field"><label>LENS WIDTH (mm)</label><input type="number" id="f-lw" placeholder="e.g. 47" inputmode="decimal"/><div class="hint">First: <b style="color:#555">47</b> □ 22 · 40</div></div>
+    <div class="field"><label>BRIDGE WIDTH (mm)</label><input type="number" id="f-bw" placeholder="e.g. 22" inputmode="decimal"/><div class="hint">Second: 47 □ <b style="color:#555">22</b> · 40</div></div>
+    <div class="field"><label>LENS HEIGHT (mm)</label><input type="number" id="f-lh" placeholder="e.g. 40" inputmode="decimal"/><div class="hint">Third: 47 □ 22 · <b style="color:#555">40</b></div></div>
+  </div>
+  <div style="background:#0a0a14;border:1px solid #1a1a2a;border-radius:10px;padding:14px;margin-bottom:13px;font-size:11px;color:#444;line-height:2;width:100%;max-width:460px;">
+    <div style="color:#555;margin-bottom:4px;letter-spacing:.15em;">PANORAMIC MEASUREMENT</div>
+    · Glasses on · Hold phone at <b style="color:#666">arm's length (~45cm)</b><br/>
+    · Look above the phone at a distant point<br/>
+    · Tap <b style="color:#666">START MEASURING</b> when ready<br/>
+    · Turn head slightly left and right to fill 3 zones<br/>
+    · Tap <b style="color:#666">CAPTURE RESULTS</b> when all zones filled
+  </div>
+  <div id="eb" class="hidden"></div>
+  <button class="btn btn-primary" id="bs">START MEASURING</button>
+</div>
+
+<!-- MEASURING -->
+<div id="s-measure" class="hidden">
+  <div class="vwrap">
+    <video id="livevid" playsinline muted autoplay></video>
+    <canvas id="overlaycv"></canvas>
+    <div class="badge" id="mbadge" style="background:rgba(26,0,0,.9);border:1px solid #e03333;color:#e03333;">LOADING AI…</div>
+    <div class="ibar" id="ibar" style="color:#ffaa00;">Slowly turn head left ↔ right</div>
+  </div>
+
+  <!-- Angle coverage histogram -->
+  <div class="hist-wrap">
+    <div class="hist-label"><span>LEFT</span><span>ANGLE COVERAGE</span><span>RIGHT</span></div>
+    <div class="hist-bar" id="hist-bar"></div>
+  </div>
+
+  <!-- Progress ring -->
+  <div class="ring-wrap">
+    <svg style="transform:rotate(-90deg)" width="110" height="110" viewBox="0 0 110 110">
+      <circle fill="none" stroke="#1e1e2e" stroke-width="8" cx="55" cy="55" r="47"/>
+      <circle fill="none" stroke="#00e5ff" stroke-width="8" stroke-linecap="round" id="rfill" cx="55" cy="55" r="47" stroke-dasharray="295" stroke-dashoffset="295" style="transition:stroke-dashoffset .25s"/>
+    </svg>
+    <div class="ring-inner"><div class="ring-num" id="ring-num">0</div><div class="rsub">samples</div></div>
+  </div>
+
+  <div class="dbg" id="debugrow">—</div>
+  <div id="live-metrics" class="hidden">
+    <div class="grid2">
+      <div class="metric"><div class="ml">PD TOTAL</div><div class="mv" id="lv-pd" style="color:#00e5ff">--<span>mm</span></div></div>
+      <div class="metric"><div class="ml">PD L / R</div><div class="mv" style="font-size:14px!important;color:#a78bfa"><span id="lv-pdl">--</span>/<span id="lv-pdr">--</span><span>mm</span></div></div>
+      <div class="metric"><div class="ml">SEG LEFT</div><div class="mv" id="lv-segl" style="color:#ff6b35">--<span>mm</span></div></div>
+      <div class="metric"><div class="ml">SEG RIGHT</div><div class="mv" id="lv-segr" style="color:#ff6b35">--<span>mm</span></div></div>
+    </div>
+    <div class="srow">
+      <div class="stag bad" id="st-a">CENTER</div>
+      <div class="stag bad" id="st-t">LEVEL</div>
+      <div class="stag bad" id="st-d">IRIS</div>
+    </div>
+  </div>
+  <button class="btn btn-primary" id="capbtn">📸 START MEASURING</button>
+  <button class="btn btn-ghost" style="margin-top:9px;" id="cancelbtn">CANCEL</button>
+</div>
+
+<!-- RESULT -->
+<div id="s-result" class="hidden">
+  <div class="card">
+    <div class="clabel">PATIENT RECORD</div>
+    <div class="field"><label>PATIENT NAME</label><input type="text" id="pn" placeholder="e.g. John Smith" style="width:100%;background:#0a0a14;border:1px solid #2a2a3e;border-radius:8px;color:#e2e2ee;padding:11px 13px;font-size:15px;font-family:inherit;outline:none;"/></div>
+    <div class="field" style="margin-bottom:0"><label>NOTES</label><input type="text" id="pnt" placeholder="e.g. progressive, first pair..." style="width:100%;background:#0a0a14;border:1px solid #2a2a3e;border-radius:8px;color:#e2e2ee;padding:11px 13px;font-size:15px;font-family:inherit;outline:none;"/></div>
+  </div>
+  <div class="card">
+    <div class="clabel" id="rl">RESULTS</div>
+    <div class="grid2" style="margin-bottom:10px;">
+      <div class="metric"><div class="ml">TOTAL PD</div><div class="mv" id="r-pd" style="color:#00e5ff;font-size:28px!important;">--<span>mm</span></div></div>
+      <div class="metric"><div class="ml">PD L / R</div><div class="mv" style="font-size:14px!important;color:#a78bfa"><span id="r-pdl">--</span> / <span id="r-pdr">--</span><span>mm</span></div></div>
+      <div class="metric"><div class="ml">SEG LEFT</div><div class="mv" id="r-segl" style="color:#ff6b35;font-size:22px!important;">--<span>mm</span></div></div>
+      <div class="metric"><div class="ml">SEG RIGHT</div><div class="mv" id="r-segr" style="color:#ff6b35;font-size:22px!important;">--<span>mm</span></div></div>
+    </div>
+    <div style="font-size:11px;color:#333;border-top:1px solid #1a1a2a;padding-top:9px;" id="fi"></div>
+  </div>
+  <div class="card">
+    <div class="clabel">MANUAL FINE-TUNE</div>
+    <div class="sr"><label>PD TOTAL</label><input type="range" id="sl-pd"/><div class="sv" id="sv-pd">--</div></div>
+    <div class="sr"><label>PD LEFT</label><input type="range" id="sl-pdl"/><div class="sv" id="sv-pdl">--</div></div>
+    <div class="sr"><label>PD RIGHT</label><input type="range" id="sl-pdr"/><div class="sv" id="sv-pdr">--</div></div>
+    <div class="sr"><label>SEG L</label><input type="range" id="sl-segl"/><div class="sv" id="sv-segl">--</div></div>
+    <div class="sr"><label>SEG R</label><input type="range" id="sl-segr"/><div class="sv" id="sv-segr">--</div></div>
+  </div>
+  <div style="font-size:10px;color:#444;letter-spacing:.2em;margin-bottom:8px;width:100%;max-width:460px;">OPTICAL CENTER DIAGRAM</div>
+  <canvas id="fc" height="200"></canvas>
+  <div id="riw" class="hidden" style="width:100%;max-width:460px;margin-bottom:13px;">
+    <div style="font-size:10px;color:#444;letter-spacing:.2em;margin-bottom:7px;">ANNOTATED PHOTO</div>
+    <img id="ri" class="result-img"/>
+    <a id="dl" class="dl-btn" download="pd.png">↓ SAVE IMAGE</a>
+  </div>
+  <div class="optbox"><div class="ot">FOR YOUR OPTICIAN</div><span id="ot"></span></div>
+  <button class="btn btn-primary" id="againbtn">MEASURE AGAIN</button>
+</div>
+
+<canvas id="sn" style="display:none"></canvas>
+<div class="notice">FOR GUIDANCE ONLY · NOT A MEDICAL DEVICE · VERIFY WITH A LICENSED OPTICIAN</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script>
+// ── Panoramic measurement system ─────────────────────────────────────────────
+// Divides head-turn angle into BINS. Each bin collects samples from a specific
+// angle range. Final result uses MEDIAN across all bins — so even if one angle
+// gives slightly different readings, the median is robust.
+// Angle is estimated from nose deviation relative to pupil midpoint.
+
+const BINS = 3;
+const BIN_TARGET = 8;
+const CIRC = 295;
+
+// Zone weights — centre counts most, only small head turn needed
+const BIN_WEIGHTS = [0.7, 1.0, 0.7];
+
+let fm=null,stream=null,af=null;
+let bins=[];
+let totalSamples=0;
+let autoFinalized=false;
+let collecting=false;  // manual start — only collect when user clicks
+let lensW=0,bridgeW=0,lensH=0;
+let rPdL=0,rPdR=0,rSegL=0,rSegR=0;
+let bestSnapLM=null;
+
+const $=id=>document.getElementById(id);
+const show=id=>$(id).classList.remove('hidden');
+const hide=id=>$(id).classList.add('hidden');
+
+function initBins(){bins=[];for(let i=0;i<BINS;i++)bins.push([]);}
+function filledBins(){return bins.filter(b=>b.length>=BIN_TARGET).length;}
+function totalNeeded(){return BINS*BIN_TARGET;}
+
+// Build histogram UI
+function buildHistogram(){
+  const bar=$('hist-bar');bar.innerHTML='';
+  for(let i=0;i<BINS;i++){
+    const seg=document.createElement('div');
+    seg.className='hist-seg';seg.id='hb'+i;
+    seg.style.cssText='flex:1;transition:background .3s;background:#0a0a14;';
+    bar.appendChild(seg);
+  }
+}
+
+function updateHistogram(){
+  for(let i=0;i<BINS;i++){
+    const seg=$('hb'+i);if(!seg)continue;
+    const count=bins[i].length;
+    const pct=Math.min(count/BIN_TARGET,1);
+    const g=Math.round(pct*180);
+    seg.style.background=pct>=1?'#00e577':`rgba(0,${g},${Math.round(g*0.3)},0.8)`;
+  }
+}
+
+function ipx(lm,c,t,r,b,l,W,H){
+  const pc={x:lm[c].x*W,y:lm[c].y*H};
+  const vt={x:lm[t].x*W,y:lm[t].y*H},vb={x:lm[b].x*W,y:lm[b].y*H};
+  const vr={x:lm[r].x*W,y:lm[r].y*H},vl={x:lm[l].x*W,y:lm[l].y*H};
+  return{diam:(Math.hypot(vt.x-vb.x,vt.y-vb.y)+Math.hypot(vr.x-vl.x,vr.y-vl.y))/2,cx:pc.x,cy:pc.y};
+}
+
+// Estimate head-turn angle: nose deviation from pupil midpoint
+// Returns -1 (far left) to +1 (far right)
+function headTurnRatio(noseTipX, pupilMidX, ipdPx){
+  return Math.max(-1,Math.min(1,(noseTipX-pupilMidX)/(ipdPx*0.5)));
+}
+
+// Map ratio -1..+1 to bin index 0..BINS-1
+function ratioBin(r){return Math.min(BINS-1,Math.floor((r+1)/2*BINS));}
+
+// Median of array
+function median(arr){
+  if(!arr.length)return 0;
+  const s=[...arr].sort((a,b)=>a-b);
+  const m=Math.floor(s.length/2);
+  return s.length%2?s[m]:(s[m-1]+s[m])/2;
+}
+
+async function go(){
+  lensW=parseFloat($('f-lw').value)||0;
+  bridgeW=parseFloat($('f-bw').value)||0;
+  lensH=parseFloat($('f-lh').value)||0;
+  if(!lensW||!bridgeW||!lensH){alert('Please fill all three frame measurements');return;}
+  hide('eb');$('bs').textContent='LOADING…';$('bs').disabled=true;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+    const vid=$('livevid');vid.srcObject=stream;
+    await new Promise(r=>{vid.onloadedmetadata=r;});await vid.play();
+    initBins();totalSamples=0;autoFinalized=false;bestSnapLM=null;
+    buildHistogram();
+    hide('s-setup');show('s-measure');
+    loadFM();
+  }catch(e){
+    $('eb').textContent='Camera error: '+e.message;show('eb');
+    $('bs').textContent='START MEASURING';$('bs').disabled=false;
+  }
+}
+
+function loadFM(){
+  if(typeof FaceMesh!=='undefined'){initFM();return;}
+  const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+  s.onload=()=>setTimeout(initFM,500);
+  s.onerror=()=>{$('mbadge').textContent='AI FAILED';};
+  document.head.appendChild(s);
+}
+function initFM(){
+  fm=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+  fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.75,minTrackingConfidence:0.75});
+  fm.onResults(onR);
+  fm.initialize().then(()=>{$('mbadge').textContent='DETECTING…';loop();}).catch(()=>{$('mbadge').textContent='DETECTING…';loop();});
+}
+function loop(){
+  const vid=$('livevid');
+  const tick=async()=>{
+    if(vid.readyState>=2&&fm){try{await fm.send({image:vid});}catch(e){}}
+    af=requestAnimationFrame(tick);
+  };tick();
+}
+
+function onR(res){
+  const vid=$('livevid'),cv=$('overlaycv');
+  const W=vid.videoWidth||640,H=vid.videoHeight||480;
+  cv.width=W;cv.height=H;
+  const ctx=cv.getContext('2d');ctx.clearRect(0,0,W,H);
+
+  if(!res.multiFaceLandmarks||!res.multiFaceLandmarks.length){
+    $('mbadge').textContent='NO FACE';hide('live-metrics');return;
+  }
+  show('live-metrics');
+
+  const lm=res.multiFaceLandmarks[0];
+  const pt=i=>({x:lm[i].x*W,y:lm[i].y*H});
+
+  // Iris landmarks
+  const L=ipx(lm,468,469,470,471,472,W,H);
+  const R=ipx(lm,473,474,475,476,477,W,H);
+
+  // ── Frame-only calibration ────────────────────────────────────────────────
+  // lm 33/263 = outer eye corners, span ≈ lensW + bridgeW mm empirically
+  // Correction: map to lensW*2+bridgeW but apply a correction factor
+  // From calibration data: span~87px gives PD~50mm, real PD=64mm
+  // iris-to-iris~78px, so correct ppm = 78/64 = 1.22
+  // span 87px / 1.22 = 71mm ≈ lensW+bridgeW+2 → use lensW+bridgeW as mapping
+  const oc33=pt(33),oc263=pt(263);
+  const innerSpanPx=Math.hypot(oc33.x-oc263.x,oc33.y-oc263.y);
+  const innerSpanMm=lensW+bridgeW;
+  const ppm=innerSpanPx/innerSpanMm;
+  const frameOk=innerSpanPx>W*0.1;
+
+  // ── Seg height: use iris Y position within frame height ───────────────────
+  // Frame top landmarks: 70 (R upper) and 300 (L upper) - upper eyelid/brow
+  // Frame bottom: measure from iris down by lensH*0.69 (stable formula)
+  // BUT adjust per eye using the iris vertical position relative to nose bridge
+  // This gives consistent results regardless of head tilt
+  const noseTop=pt(6); // nose bridge top - stable vertical reference
+  // Iris height relative to nose bridge gives frame position
+  const irisToNoseL=Math.abs(L.cy-noseTop.y)/ppm;
+  const irisToNoseR=Math.abs(R.cy-noseTop.y)/ppm;
+  // Seg = lensH * 0.69 baseline, adjusted by tilt
+  const baseSeg=lensH*0.69;
+  const tiltDiff=(R.cy-L.cy)/ppm; // positive = R lower than L
+  const segL=baseSeg+tiltDiff*0.25;
+  const segR=baseSeg-tiltDiff*0.25;
+
+  const Rin=pt(133),Lin=pt(362);
+  const noseMidX=(Rin.x+Lin.x)/2,noseMidY=(Rin.y+Lin.y)/2;
+  const noseTip=pt(1);
+
+  const pdTotMm=Math.hypot(R.cx-L.cx,R.cy-L.cy)/ppm;
+  const pdLmm=Math.hypot(L.cx-noseMidX,L.cy-noseMidY)/ppm;
+  const pdRmm=Math.hypot(R.cx-noseMidX,R.cy-noseMidY)/ppm;
+
+  const ipdPx=Math.hypot(R.cx-L.cx,R.cy-L.cy);
+  const turnRatio=headTurnRatio(noseTip.x,(L.cx+R.cx)/2,ipdPx);
+  const binIdx=ratioBin(turnRatio);
+
+  const spL=segL*ppm,spR=segR*ppm;
+
+  // Quality checks
+  const tiltMm=Math.abs(L.cy-R.cy)/ppm;
+  const tOk=tiltMm<5;
+  const ok=frameOk&&tOk;
+
+  // Snapshot from centre bin
+  if(ok && binIdx===Math.floor(BINS/2)){
+    const snap=document.createElement('canvas');
+    snap.width=W;snap.height=H;
+    const sc=snap.getContext('2d');
+    sc.drawImage(vid,0,0);sc.drawImage(cv,0,0);
+    bestSnapLM=snap;
+  }
+
+  // Only collect when user has started collecting
+  if(ok&&collecting){
+    if(bins[binIdx].length<BIN_TARGET*2){
+      bins[binIdx].push({pdTotMm,pdLmm,pdRmm,segL,segR,ppm,turnRatio});
+    }
+    totalSamples=bins.reduce((s,b)=>s+b.length,0);
+  }
+
+  // ── Draw overlay ──────────────────────────────────────────────────────────
+  // Iris circles + crosshairs
+  [[L,'#00e5ff'],[R,'#00e5ff']].forEach(([iris,col])=>{
+    ctx.strokeStyle=col;ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(iris.cx,iris.cy,iris.diam/2,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle=col;ctx.beginPath();ctx.arc(iris.cx,iris.cy,3,0,Math.PI*2);ctx.fill();
+    const rr=iris.diam/2+8;
+    ctx.beginPath();ctx.moveTo(iris.cx-rr,iris.cy);ctx.lineTo(iris.cx+rr,iris.cy);
+    ctx.moveTo(iris.cx,iris.cy-rr);ctx.lineTo(iris.cx,iris.cy+rr);ctx.stroke();
+  });
+
+  // PD line
+  ctx.strokeStyle='#00e5ffaa';ctx.lineWidth=1.5;ctx.setLineDash([6,4]);
+  ctx.beginPath();ctx.moveTo(L.cx,L.cy);ctx.lineTo(R.cx,R.cy);ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Midline
+  ctx.strokeStyle='#ffea0066';ctx.lineWidth=1.5;ctx.setLineDash([4,4]);
+  ctx.beginPath();ctx.moveTo(noseMidX,noseMidY-40);ctx.lineTo(noseMidX,noseMidY+spL+10);ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Seg lines
+  [[L,spL],[R,spR]].forEach(([iris,sp])=>{
+    ctx.strokeStyle='#ff6b35';ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.moveTo(iris.cx,iris.cy);ctx.lineTo(iris.cx,iris.cy+sp);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(iris.cx-8,iris.cy+sp);ctx.lineTo(iris.cx+8,iris.cy+sp);ctx.stroke();
+  });
+
+  // Monocular lines
+  ctx.strokeStyle='#a78bfa66';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+  ctx.beginPath();
+  ctx.moveTo(L.cx,L.cy);ctx.lineTo(noseMidX,L.cy);
+  ctx.moveTo(R.cx,R.cy);ctx.lineTo(noseMidX,R.cy);
+  ctx.stroke();ctx.setLineDash([]);
+
+  // Angle indicator bar on video
+  const barY=H-8,barW=W*0.6,barX=(W-barW)/2;
+  ctx.fillStyle='#ffffff15';ctx.fillRect(barX,barY-4,barW,8);
+  const indicX=barX+barW*(turnRatio+1)/2;
+  const binCol=bins[binIdx].length>=BIN_TARGET?'#00e577':'#00e5ff';
+  ctx.fillStyle=binCol;ctx.fillRect(indicX-3,barY-6,6,12);
+
+  // PD live label
+  ctx.font='bold 15px Courier New';ctx.fillStyle='#00e5ffcc';
+  ctx.fillText('PD '+(pdLmm+pdRmm).toFixed(1)+'mm',10,22);
+  ctx.font='11px Courier New';ctx.fillStyle='#888';
+  ctx.fillText(filledBins()+'/'+BINS+' zones',10,38);
+
+  // ── Update UI ─────────────────────────────────────────────────────────────
+  $('lv-pd').innerHTML=(pdLmm+pdRmm).toFixed(1)+'<span>mm</span>';
+  $('lv-pdl').textContent=pdLmm.toFixed(1);$('lv-pdr').textContent=pdRmm.toFixed(1);
+  $('lv-segl').innerHTML=segL.toFixed(1)+'<span>mm</span>';
+  $('lv-segr').innerHTML=segR.toFixed(1)+'<span>mm</span>';
+
+  const sa=$('st-a'),st=$('st-t'),sd=$('st-d');
+  const filled=filledBins();
+  sa.textContent=filled+'/'+BINS+' ZONES';sa.className='stag '+(filled>=BINS?'good':filled>0?'warn':'bad');
+  st.textContent=tOk?'✓ LEVEL':'LEVEL HEAD';st.className='stag '+(tOk?'good':'bad');
+  sd.textContent=frameOk?'✓ FRAME OK':'NO FRAME';sd.className='stag '+(frameOk?'good':'bad');
+
+  const pct=Math.min(filled/BINS,1);
+  $('rfill').style.strokeDashoffset=(CIRC*(1-pct)).toFixed(1);
+  $('rfill').style.stroke=pct>=1?'#00e577':'#00e5ff';
+  $('ring-num').textContent=totalSamples;
+
+  updateHistogram();
+
+  const mb=$('mbadge');
+  const ib=$('ibar');
+  if(filled>=BINS&&!autoFinalized){
+    mb.textContent='✓ COMPLETE';mb.style.cssText='background:rgba(0,34,15,.9);border:1px solid #00e577;color:#00e5a0;';
+    ib.textContent='✓ Done — tap CAPTURE for results';ib.style.color='#00e577';
+    autoFinalized=true;setTimeout(finalize,600);
+  } else if(!collecting){
+    mb.textContent='READY';mb.style.cssText='background:rgba(0,20,30,.9);border:1px solid #00e5ff44;color:#00e5ffaa;';
+    ib.textContent='👆 Tap CAPTURE NOW to start measuring';ib.style.color='#00e5ffaa';
+  } else if(filled>=BINS){
+    mb.textContent='✓ READY';mb.style.cssText='background:rgba(0,34,15,.9);border:1px solid #00e577;color:#00e5a0;';
+    ib.textContent='✓ Done — tap CAPTURE for results';ib.style.color='#00e577';
+  } else {
+    mb.textContent=filled+'/'+BINS+' ZONES';mb.style.cssText='background:rgba(18,0,0,.9);border:1px solid #e03333;color:#e05555;';
+    ib.textContent='↔ Slowly turn head slightly left and right';ib.style.color='#00e5ff88';
+  }
+
+  $('debugrow').textContent='span:'+innerSpanPx.toFixed(0)+'px='+innerSpanMm+'mm|ppm:'+ppm.toFixed(2)+'|PD:'+pdTotMm.toFixed(1)+'|segL:'+segL.toFixed(1)+'|segR:'+segR.toFixed(1)+(collecting?' ●':'');
+}
+
+function finalize(){
+  if(!bins.some(b=>b.length>0))return;
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  if(af){cancelAnimationFrame(af);af=null;}
+
+  const goodBins=bins.map((b,i)=>({samples:b,weight:BIN_WEIGHTS[i]})).filter(b=>b.samples.length>=Math.min(3,BIN_TARGET));
+  if(!goodBins.length)return;
+
+  // Weighted average of bin medians — centre zones count more
+  let wTot=0,wPdTotal=0,wSegL=0,wSegR=0;
+  goodBins.forEach(({samples,weight})=>{
+    const pdTot=median(samples.map(s=>s.pdTotMm));
+    const sL=median(samples.map(s=>s.segL));
+    const sR=median(samples.map(s=>s.segR));
+    wTot+=weight;
+    wPdTotal+=pdTot*weight;
+    wSegL+=sL*weight;
+    wSegR+=sR*weight;
+  });
+  const finalPdTotal=wPdTotal/wTot;
+  rSegL=wSegL/wTot;
+  rSegR=wSegR/wTot;
+
+  // For monocular split: use ONLY samples from the 3 centre bins (most accurate)
+  // where nose deviation is minimal
+  const centreSamples=[];
+  const centreRange=[1,2,3]; // bins 1,2,3 = centre three of five
+  centreRange.forEach(i=>{if(bins[i])centreSamples.push(...bins[i]);});
+
+  if(centreSamples.length>=3){
+    // In centre frames, nose midpoint is reliable
+    const pdLvals=centreSamples.map(s=>s.pdLmm);
+    const pdRvals=centreSamples.map(s=>s.pdRmm);
+    const rawL=median(pdLvals);
+    const rawR=median(pdRvals);
+    const rawTotal=rawL+rawR;
+    // Scale monocular values to match the more accurate total PD
+    const scale=finalPdTotal/rawTotal;
+    rPdL=rawL*scale;
+    rPdR=rawR*scale;
+  } else {
+    // Fallback: split evenly
+    rPdL=finalPdTotal/2;
+    rPdR=finalPdTotal/2;
+  }
+
+  // Use pre-saved snapshot (captured during measurement, before camera stop)
+  if(bestSnapLM){
+    const sn=document.createElement('canvas');
+    sn.width=bestSnapLM.width;sn.height=bestSnapLM.height;
+    const sctx=sn.getContext('2d');
+    // Flip for examiner view
+    sctx.save();sctx.scale(-1,1);sctx.drawImage(bestSnapLM,-sn.width,0);sctx.restore();
+    // Overlay measurements
+    sctx.fillStyle='rgba(0,0,0,.68)';sctx.fillRect(0,0,sn.width,108);
+    sctx.font='bold 22px Courier New';sctx.fillStyle='#00e5ff';
+    sctx.fillText('PD: '+(rPdL+rPdR).toFixed(1)+' mm',14,32);
+    sctx.font='15px Courier New';sctx.fillStyle='#a78bfa';
+    sctx.fillText('L: '+rPdL.toFixed(1)+'  R: '+rPdR.toFixed(1)+' mm',14,54);
+    sctx.fillStyle='#ff6b35';
+    sctx.fillText('Seg L: '+rSegL.toFixed(1)+'  R: '+rSegR.toFixed(1)+' mm',14,76);
+    sctx.fillStyle='#ffea0088';sctx.font='10px Courier New';
+    sctx.fillText(new Date().toLocaleDateString('en-GB')+' | '+lensW+'x'+lensH+' br:'+bridgeW,14,sn.height-10);
+    const img=sn.toDataURL('image/png');
+    $('ri').src=img;$('dl').href=img;show('riw');
+  }
+
+  hide('s-measure');
+
+  // Show results
+  $('rl').textContent='RESULTS · '+goodBins.length+'/'+BINS+' ZONES · '+totalSamples+' SAMPLES';
+  $('r-pd').innerHTML=(rPdL+rPdR).toFixed(1)+'<span>mm</span>';
+  $('r-segl').innerHTML=rSegL.toFixed(1)+'<span>mm</span>';
+  $('r-segr').innerHTML=rSegR.toFixed(1)+'<span>mm</span>';
+  $('r-pdl').textContent=rPdL.toFixed(1);$('r-pdr').textContent=rPdR.toFixed(1);
+  $('fi').textContent='Lens: '+lensW+'mm · Bridge: '+bridgeW+'mm · Height: '+lensH+'mm · Frame calibrated';
+  uot();
+  ss('sl-pd','sv-pd',rPdL+rPdR,50,80);ss('sl-pdl','sv-pdl',rPdL,24,42);
+  ss('sl-pdr','sv-pdr',rPdR,24,42);ss('sl-segl','sv-segl',rSegL,10,45);
+  ss('sl-segr','sv-segr',rSegR,10,45);
+  drawFocal();show('s-result');
+  $('pn').oninput=uot;$('pnt').oninput=uot;
+}
+
+function ss(sid,vid,val,mn,mx){const s=$(sid);s.min=mn;s.max=mx;s.step=0.5;s.value=val.toFixed(1);$(vid).textContent=val.toFixed(1)+'mm';}
+function usl(){
+  rPdL=+$('sl-pdl').value;rPdR=+$('sl-pdr').value;
+  rSegL=+$('sl-segl').value;rSegR=+$('sl-segr').value;
+  $('sv-pd').textContent=(rPdL+rPdR).toFixed(1)+'mm';
+  $('sv-pdl').textContent=rPdL.toFixed(1)+'mm';$('sv-pdr').textContent=rPdR.toFixed(1)+'mm';
+  $('sv-segl').textContent=rSegL.toFixed(1)+'mm';$('sv-segr').textContent=rSegR.toFixed(1)+'mm';
+  $('r-pd').innerHTML=(rPdL+rPdR).toFixed(1)+'<span>mm</span>';
+  $('r-segl').innerHTML=rSegL.toFixed(1)+'<span>mm</span>';$('r-segr').innerHTML=rSegR.toFixed(1)+'<span>mm</span>';
+  $('r-pdl').textContent=rPdL.toFixed(1);$('r-pdr').textContent=rPdR.toFixed(1);
+  uot();drawFocal();
+}
+function uot(){
+  const nm=$('pn').value||'—',nt=$('pnt').value||'—';
+  const dt=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'});
+  $('ot').innerHTML='<b style="color:#4a8a4a">'+nm+'</b> · '+dt+'<br/>Monocular PD — R: '+rPdR.toFixed(1)+' / L: '+rPdL.toFixed(1)+' mm<br/>Binocular PD: '+(rPdL+rPdR).toFixed(1)+' mm<br/>Seg — L: '+rSegL.toFixed(1)+' / R: '+rSegR.toFixed(1)+' mm<br/><span style="color:#2a4a2a">Notes: '+nt+'</span>';
+}
+function drawFocal(){
+  const fc=$('fc');const W=fc.offsetWidth||460;fc.width=W;fc.height=200;
+  const ctx=fc.getContext('2d');ctx.fillStyle='#0a0a14';ctx.fillRect(0,0,W,200);
+  const sc=W/160,cx=W/2,fy=28;
+  const lWp=lensW*sc,lHp=lensH*sc*0.55,brP=bridgeW*sc;
+  ctx.strokeStyle='#2a2a4a';ctx.lineWidth=2;
+  ctx.strokeRect(cx-brP/2-lWp,fy,lWp,lHp);ctx.strokeRect(cx+brP/2,fy,lWp,lHp);
+  ctx.beginPath();ctx.moveTo(cx-brP/2,fy+lHp*0.3);ctx.lineTo(cx+brP/2,fy+lHp*0.3);ctx.stroke();
+  const lp=cx-rPdL*sc,rp=cx+rPdR*sc;
+  const oL=fy+rSegL*sc*0.55,oR=fy+rSegR*sc*0.55;
+  [[lp,oL,'#a78bfa'],[rp,oR,'#00e5ff']].forEach(([px,oy,col])=>{
+    ctx.strokeStyle=col+'55';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(px,fy);ctx.lineTo(px,fy+lHp);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=col;ctx.beginPath();ctx.arc(px,oy,5,0,Math.PI*2);ctx.fill();
+  });
+  ctx.strokeStyle='#00e5ff44';ctx.lineWidth=1;ctx.setLineDash([5,4]);
+  ctx.beginPath();ctx.moveTo(lp,oL);ctx.lineTo(rp,oR);ctx.stroke();ctx.setLineDash([]);
+  ctx.textAlign='center';
+  ctx.fillStyle='#00e5ffaa';ctx.font='bold 12px Courier New';ctx.fillText('PD '+(rPdL+rPdR).toFixed(1)+'mm',cx,fy+lHp+20);
+  ctx.fillStyle='#a78bfaaa';ctx.font='10px Courier New';
+  ctx.fillText('L '+rPdL.toFixed(1),lp,fy+lHp+36);ctx.fillText('R '+rPdR.toFixed(1),rp,fy+lHp+36);
+  ctx.fillStyle='#ff6b35aa';ctx.fillText('Seg L:'+rSegL.toFixed(1)+' R:'+rSegR.toFixed(1),cx,fy+lHp+52);
+  ctx.textAlign='left';
+}
+function rst(){
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  if(af){cancelAnimationFrame(af);af=null;}
+  initBins();totalSamples=0;autoFinalized=false;bestSnapLM=null;collecting=false;
+  $('bs').textContent='START MEASURING';$('bs').disabled=false;
+  $('capbtn').textContent='📸 START MEASURING';
+  ['s-measure','s-result','eb'].forEach(hide);show('s-setup');
+}
+
+function handleCapBtn(){
+  if(!collecting){
+    // First press — start collecting
+    collecting=true;
+    $('capbtn').textContent='📸 CAPTURE RESULTS';
+  } else {
+    // Second press — finalize
+    finalize();
+  }
+}
+
+document.addEventListener('DOMContentLoaded',function(){
+  $('bs').addEventListener('click',go);
+  $('capbtn').addEventListener('click',handleCapBtn);
+  $('cancelbtn').addEventListener('click',rst);
+  $('againbtn').addEventListener('click',rst);
+  ['sl-pd','sl-pdl','sl-pdr','sl-segl','sl-segr'].forEach(function(id){
+    $(id).addEventListener('input',usl);
+  });
+});
+</script>
+</body>
+</html>
